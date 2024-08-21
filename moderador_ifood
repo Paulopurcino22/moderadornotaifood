@@ -1,0 +1,70 @@
+const table = base.getTable("Teste");
+const apiKey = "sua_api_aqui";
+
+async function processNewRecords() {
+    const view = await table.getView("Grid view");
+    const query = await view.selectRecordsAsync({ fields: ["Input", "Motivo", "Output"] });
+
+    for (let record of query.records) {
+        if (!record.getCellValue("Output")) {
+            const input = record.getCellValueAsString("Input");
+            if (input) {
+                const motivo = await moderation(input);
+                const reply = await generateModerationRequest(input, motivo);
+
+
+                await table.updateRecordAsync(record, {
+                    "Output": reply,
+                    "Motivo": motivo
+                });
+            }
+        }
+    }
+}
+
+async function moderation(input) {
+    if (input.includes("ofensa") || input.includes("palavrões") || input.includes("racismo")) {
+        return "Contém ofensas, palavrões ou racismo";
+    } else if (input.includes("entrega") || input.includes("plataforma")) {
+        return "Reclamação sobre a entrega parceira iFood ou sobre a plataforma";
+    } else if (input.includes("não está no pedido")) {
+        return "Item avaliado não está no pedido";
+    } else {
+        return "Avaliação realizada para pedido trote";
+    }
+}
+
+async function generateModerationRequest(input, motivo) {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+            model: "gpt-4o",
+            max_tokens: 256,
+            temperature: 1,
+            messages: [
+                {
+                    "role": 'system',
+                    "content": "Atue como um dono de restaurante agindo  sem cordialidade conversando com o iFood. Crie e argumente se eximindo de toda culpa sobre o que está sendo dito a respeito. Diga também sobre inverdades, e as coisas que estão sendo ditas também não fazem sentido. Por fim, peça a remoção dessa frase da plataforma.Quero no máximo 500 caracteres"
+                },
+                {
+                    "role": 'user',
+                    "content": input
+                }
+            ]
+        })
+    });
+
+    if (!response.ok) {
+        console.error("Erro ao fazer a solicitação para a API do ChatGPT");
+        return;
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content;
+}
+
+await processNewRecords();
